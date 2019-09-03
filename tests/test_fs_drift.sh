@@ -23,9 +23,11 @@ function functional_test_fs_drift {
     --namespace my-ripsaw --timeout=200s" "200s" $fsdrift_pod
   wait_for "kubectl wait --for=condition=complete -l app=fs-drift-benchmark-$uuid jobs \
     --namespace my-ripsaw --timeout=100s" "200s" $fsdrift_pod
-  sleep 20
-  # ensuring the run has actually happened
-  kubectl logs "$fsdrift_pod" --namespace my-ripsaw | grep "RUN STATUS"
+  for k in 1 2 3 4 ; do
+    sleep 10
+    # ensuring the run has actually happened
+    (kubectl logs "$fsdrift_pod" --namespace my-ripsaw | grep "RUN STATUS DONE") && break
+  done || (echo "fs-drift test: Failure" ; exit 1)
   echo "fs-drift test: Success"
 }
 
