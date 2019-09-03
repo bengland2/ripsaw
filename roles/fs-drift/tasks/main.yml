@@ -7,6 +7,24 @@
     fs_drift_path: /mnt/pvc
   when: fs_drift.worker_pods > 0 and fs_drift.storageclass is defined
 
+- name: Get current state
+  k8s_facts:
+    api_version: ripsaw.cloudbulldozer.io/v1alpha1
+    kind: Benchmark
+    name: '{{ meta.name }}'
+    namespace: '{{ operator_namespace }}'
+  register: resource_state
+
+- k8s_status:
+    api_version: ripsaw.cloudbulldozer.io/v1alpha1
+    kind: Benchmark
+    name: "{{ meta.name }}"
+    namespace: "{{ operator_namespace }}"
+    status:
+      state: Starting
+      complete: false
+  when: resource_state.resources[0].status.state is not defined
+
 - name: Create PVCs
   k8s:
     definition:
@@ -81,10 +99,41 @@
                   defaultmode: 0777
             restartPolicy: Never
 
-- name: run the workload
-  k8s:
-    definition: "{{ lookup('template', 'workload_job.yml.j2') }}"
-  with_sequence: start=1 count={{fs_drift.worker_pods}}
-  when: fs_drift.worker_pods > 0
+- k8s_status:
+    api_version: ripsaw.cloudbulldozer.io/v1alpha1
+    kind: Benchmark
+    name: "{{ meta.name }}"
+    namespace: "{{ operator_namespace }}"
+    status:
+      state: Running
+      complete: false
+
+- block:
+  - name: run the workload
+    k8s:
+      definition: "{{ lookup('template', 'workload_job.yml.j2') }}"
+    with_sequence: start=1 count={{fs_drift.worker_pods}}
+    when: fs_drift.worker_pods > 0
+
+  - name: Capture Client pod list
+    k8s_facts:
+      kind: Pod
+      api_version: v1
+      namespace: '{{ operator_namespace }}'
+      label_selectors:
+        - app = fs-drift-{{ trunc_uuid }}
+    register: client_pods
+
+  - k8s_status:
+      api_version: ripsaw.cloudbulldozer.io/v1alpha1
+      kind: Benchmark
+      name: "{{ meta.name }}"
+      namespace: "{{ operator_namespace }}"
+      status:
+        state: Complete
+        complete: true
+    when : "client_pods|json_query('resources[].status[]')|selectattr('phase','match','Succeeded')|list|length > 0 "
+
+  when: resource_state.resources[0].status.state == "Running"
 
 
