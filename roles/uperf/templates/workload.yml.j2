@@ -3,9 +3,9 @@ kind: Job
 apiVersion: batch/v1
 metadata:
 {% if workload_args.serviceip is sameas true %}
-  name: 'uperf-client-{{item.spec.clusterIP}}-{{ trunc_uuid }}'
+  name: 'clientfor-{{item.metadata.labels.app}}-{{item.spec.clusterIP}}-{{ trunc_uuid }}'
 {% else %}
-  name: 'uperf-client-{{item.status.podIP}}-{{ trunc_uuid }}'
+  name: 'clientfor-{{item.metadata.labels.app}}-{{item.status.podIP}}-{{ trunc_uuid }}'
 {% endif %}
   namespace: '{{ operator_namespace }}'
 spec:
@@ -30,10 +30,10 @@ spec:
             podAffinityTerm:
               labelSelector:
                 matchExpressions:
-                - key: type
+                - key: app
                   operator: In
                   values:
-                  - uperf-bench-server-{{ trunc_uuid }}
+                  - {{ item.metadata.labels.app }}
               topologyKey: kubernetes.io/hostname
       containers:
       - name: benchmark
