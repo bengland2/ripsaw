@@ -1,0 +1,132 @@
+---
+- name: Get current state
+  k8s_info:
+    api_version: ripsaw.cloudbulldozer.io/v1alpha1
+    kind: Benchmark
+    name: '{{ meta.name }}'
+    namespace: '{{ operator_namespace }}'
+  register: resource_state
+
+- operator_sdk.util.k8s_status:
+    api_version: ripsaw.cloudbulldozer.io/v1alpha1
+    kind: Benchmark
+    name: "{{ meta.name }}"
+    namespace: "{{ operator_namespace }}"
+    status:
+      state: Building
+      complete: false
+  when: resource_state.resources[0].status.state is not defined
+
+- name: Get current state - If it has changed
+  k8s_info:
+    api_version: ripsaw.cloudbulldozer.io/v1alpha1
+    kind: Benchmark
+    name: '{{ meta.name }}'
+    namespace: '{{ operator_namespace }}'
+  register: resource_state
+
+- block:
+
+  - name: Generate cosbench test
+    k8s:
+      definition: "{{ lookup('template', 'configmap.yml.j2') | from_yaml }}"
+
+  - name: Start COSBench Controller
+    k8s:
+      definition: "{{ lookup('template', 'controller.yaml') | from_yaml }}"
+
+  - operator_sdk.util.k8s_status:
+      api_version: ripsaw.cloudbulldozer.io/v1alpha1
+      kind: Benchmark
+      name: "{{ meta.name }}"
+      namespace: "{{ operator_namespace }}"
+      status:
+        state: StartingController
+        complete: false
+    when : "1 == (cosbench_ctlr | json_query('resources[].status[]')|selectattr('phase','match','Running')|list|length) and resource_state.resources[0].status.state == 'StartingController'"
+  when: resource_state.resources[0].status.state == "Building"
+
+# now we start drivers
+
+- block:
+  - name: Capture controller info
+    k8s_info:
+      kind: Pod
+      api_version: v1
+      namespace: '{{ operator_namespace }}'
+      label_selectors:
+        - app = cosbench-controller-{{ trunc_uuid }}
+    register: cosbench_ctlr
+
+  - name: Start COSBench Driver(s)
+    k8s:
+      definition: "{{ lookup('template', 'drivers.yaml') | from_yaml }}"
+    when: workload_args.drivers|default('1')|int > 0
+    with_sequence: start=1 count={{ workload_args.drivers|default('1')|int }}
+
+  - operator_sdk.util.k8s_status:
+      api_version: ripsaw.cloudbulldozer.io/v1alpha1
+      kind: Benchmark
+      name: "{{ meta.name }}"
+      namespace: "{{ operator_namespace }}"
+      status:
+        state: StartingDrivers
+        complete: false
+    when : "1 == (cosbench_ctlr | json_query('resources[].status[]')|selectattr('phase','match','Running')|list|length) and resource_state.resources[0].status.state == 'StartingController'"
+  when: resource_state.resources[0].status.state == "StartingController"
+
+# now we start drivers
+- block :
+
+  - name: Start COSBench Driver(s)
+    k8s:
+      definition: "{{ lookup('template', 'drivers.yaml') | from_yaml }}"
+    when: workload_args.drivers|default('1')|int > 0
+    with_sequence: start=1 count={{ workload_args.drivers|default('1')|int }}
+
+  - name: Capture pod list
+    k8s_info:
+      kind: Pod
+      api_version: v1
+      namespace: '{{ operator_namespace }}'
+      label_selectors:
+        - app = cosbench-driver-{{ trunc_uuid }}
+    register: driver_pods
+
+  - operator_sdk.util.k8s_status:
+      api_version: ripsaw.cloudbulldozer.io/v1alpha1
+      kind: Benchmark
+      name: "{{ meta.name }}"
+      namespace: "{{ operator_namespace }}"
+      status:
+        state: Running
+        complete: false
+    when : "workload_args.drivers|default('1')|int == (driver_pods | json_query('resources[].status.podIP')|length) and workload_args.drivers|default('1')|int == (driver_pods | json_query('resources[].status[]')|selectattr('phase','match','Running')|list|length) and resource_state.resources[0].status.state == 'StartingDrivers'"
+
+  - name: Create IP list and nodes
+    set_fact:
+      pod_details: "{{ pod_details|default({}) | combine({item.status.podIP: item.spec.nodeName}) }}"
+    with_items: "{{ driver_pods.resources }}"
+
+
+- block:
+  - name: Capture Driver pod list
+    k8s_info:
+      kind: Pod
+      api_version: v1
+      namespace: '{{ operator_namespace }}'
+      label_selectors:
+        - app = cosbench-driver-{{ trunc_uuid }}
+    register: driver_pods
+
+  - operator_sdk.util.k8s_status:
+      api_version: ripsaw.cloudbulldozer.io/v1alpha1
+      kind: Benchmark
+      name: "{{ meta.name }}"
+      namespace: "{{ operator_namespace }}"
+      status:
+        state: Complete
+        complete: true
+    when : "driver_pods|json_query('resources[].status[]')|selectattr('phase','match','Succeeded')|list|length > 0 "
+
+  when: resource_state.resources[0].status.state == "Running"
