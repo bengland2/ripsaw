@@ -1,0 +1,59 @@
+---
+kind: Job
+apiVersion: batch/v1
+metadata:
+  name: 'cosbench-driver-{{ item }}-benchmark-{{ trunc_uuid }}'
+  namespace: '{{ operator_namespace }}'
+spec:
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: cosbench-benchmark-{{ trunc_uuid }}
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - cosbench-benchmark-{{ trunc_uuid }}
+              topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: fio-server
+        securityContext:
+          privileged: true
+        image: {{ workload_args.image | default('quay.io/cloud-bulldozer/cosbench:latest') }}
+        imagePullPolicy: Always
+        ports:
+          - containerPort: 8765
+        command: ["/bin/sh", "-c"]
+        args:
+          - "cd /tmp; run_driver.sh --xml_directory {{ xml_path }}"
+{% if workload_args.storageclass is defined or hostpath is defined %}
+        volumeMounts:
+        - name: xml-volume
+          mountPath: "{{ xml_path }}"
+{% endif %}
+      restartPolicy: Never
+      serviceAccountName: benchmark-operator
+{% if workload_args.nodeselector is defined %}
+      nodeSelector: 
+{% for label, value in  workload_args.nodeselector.items() %}
+        {{ label | replace ("_", "-" )}}: {{ value }}
+{% endfor %}
+{% endif  %}
+{% if workload_args.tolerations is defined %}
+      tolerations:
+        {{ workload_args.tolerations }}
+{% endif %}
+      volumes:
+      - name: xml-volume
+        hostPath:
+          path: {{ xml_path }}
+          type: DirectoryOrCreate
+{% include "metadata.yml.j2" %}

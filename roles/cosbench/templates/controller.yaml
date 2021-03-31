@@ -1,0 +1,70 @@
+---
+kind: Job
+apiVersion: batch/v1
+metadata:
+  name: 'cosbench-controller-{{ trunc_uuid }}'
+  namespace: '{{ operator_namespace }}'
+spec:
+  template:
+    metadata:
+      labels:
+        app: cosbench-controller-{{ trunc_uuid }}
+    spec:
+      containers:
+      - name: cosbench-controller
+        image: {{ workload_args.image | default('quay.io/cloud-bulldozer/cosbench:latest') }}
+        imagePullPolicy: Always
+        env:
+          - name: uuid
+            value: "{{ uuid }}"
+          - name: test_user
+            value: "{{ test_user | default('ripsaw') }}"
+          - name: clustername
+            value: "{{ clustername }}"
+          - name: ceph_cache_drop_pod_ip
+            value: "{{ workload_args.rook_ceph_drop_cache_pod_ip | default() }}"
+{% if elasticsearch is defined %}
+          - name: es
+            value: "{{ elasticsearch.url }}"
+          - name: es_index
+            value: "{{ elasticsearch.index_name | default('ripsaw-cosbench') }}"
+          - name: es_verify_cert
+            value: "{{ elasticsearch.verify_cert | default(true) }}"
+          - name: parallel
+            value: "{{ elasticsearch.parallel | default(false) }}"
+{% endif %}
+{% if prometheus is defined %}
+          - name: prom_es
+            value: "{{ prometheus.es_url }}"
+          - name: prom_parallel
+            value: "{{ prometheus.es_parallel | default(false) }}"
+          - name: prom_token
+            value: "{{ prometheus.prom_token | default() }}"
+          - name: prom_url
+            value: "{{ prometheus.prom_url | default() }}"
+{% endif %}
+        command: ["/bin/sh", "-c"]
+        args:
+          - "cat /tmp/host/hosts; "
+             run_snafu -t cosbench -H /tmp/cosbench/hosts -s {{workload_args.samples}} -d /tmp/cosbench-{{ uuid }} \
+{% if workload_args.debug is defined and workload_args.debug %}
+             -v \
+{% endif %}
+             ;
+{% endfor %}
+             echo run finished"
+        volumeMounts:
+        - name: cosbench-volume
+          mountPath: "/tmp/cosbench"
+        - name: host-volume
+          mountPath: "/tmp/host"
+      volumes:
+      - name: cosbench-volume
+        configMap:
+          name: "cosbench-test-{{ trunc_uuid }}"
+          defaultMode: 0777
+      - name: host-volume
+        configMap:
+          name: "cosbench-hosts-{{ trunc_uuid }}"
+          defaultMode: 0777
+      restartPolicy: Never
