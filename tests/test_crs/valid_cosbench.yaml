@@ -16,8 +16,45 @@ spec:
   workload:
     name: cosbench
     args:
-      clients: 2
-      operation: ["create", "read", "append", "delete"]
-      threads: 1
-      file_size: 4
-      files: 10000
+      image: quay.io/bengland2/cosbench:snafu_ci
+      # number of worker pods, must be max of workers in all stages
+      max_workers: 2
+      samples: 2
+      http_url:
+            - https://testXXX.myocp4.com:7040 # example S3/Swift endpoint
+      http_user: johndoe:swift"   # example username     
+      obj_sizes: "h(1|1|50,64|64|15,8192|8192|15,65536|65536|15,1048576|1048576|5)KB"
+      # more examples
+      #  obj_sizes: "c(64)KB"
+      #  obj_sizes: "h(4|4|34,64|64|33,65536|65536|33)KB"
+      obj_containers: 5
+      auth_type: "swauth"
+      # stages are optional, if workers set to zero than stage is skipped
+      # XML file generated for each stage is named stage.xml
+      # XML file is generated only if workers > 0
+      stages:
+        - fill:
+            workers: "{{ max_workers }}"
+            max_obj: 232200
+            timeout: 900000
+            retry: 3
+        - age:
+            workers: "{{ max_workers }}"
+            max_obj: "{{ workload.args.stages.fill.max_obj * 2 }}"
+        - upgrade:
+            workers: 0
+            max_obj: 250000
+        - measure:
+            max_obj: 600000
+            workers: 1
+            timeout: 900000
+            retry: 3
+            # percentages must add up to 100 or test will abort
+            pct_type: 
+              rd: 60
+              wr: 16
+              del: 14
+              list: 10
+        - empty:
+            max_obj: 600000
+            workers: "{{ max_workers }}"
