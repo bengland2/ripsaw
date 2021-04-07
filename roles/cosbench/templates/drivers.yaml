@@ -24,7 +24,7 @@ spec:
                   - cosbench-benchmark-{{ trunc_uuid }}
               topologyKey: "kubernetes.io/hostname"
       containers:
-      - name: fio-server
+      - name: cosbench-driver-{{ item }}-benchmark-{{ trunc_uuid }}
         securityContext:
           privileged: true
         image: {{ workload_args.image | default('quay.io/cloud-bulldozer/cosbench:latest') }}
@@ -56,4 +56,3 @@ spec:
         hostPath:
           path: {{ xml_path }}
           type: DirectoryOrCreate
-{% include "metadata.yml.j2" %}
