@@ -4,10 +4,13 @@ metadata:
   name: example-benchmark
   namespace: my-ripsaw
 spec:
+  elasticsearch:
+    url: http://marquez.perf.lab.eng.rdu2.redhat.com:9200
+  metadata:
+    collection: true
+  cleanup: false
   test_user: homer_simpson
-  # to separate this test run from everyone else's
   clustername: test_ci
-  # where elastic search is running
   elasticsearch:
     url: ES_SERVER
     index_name: ripsaw-cosbench
@@ -17,9 +20,8 @@ spec:
     name: cosbench
     args:
       image: quay.io/bengland2/cosbench:snafu_ci
-      # number of worker pods, must be max of workers in all stages
-      max_workers: 2
       samples: 2
+      max_workers: 2  # must be maximum of workers in any stage below
       http_url:
             - https://testXXX.myocp4.com:7040 # example S3/Swift endpoint
       http_user: johndoe:swift"   # example username     
@@ -34,13 +36,13 @@ spec:
       # XML file is generated only if workers > 0
       stages:
         - fill:
-            workers: "{{ max_workers }}"
+            workers: 2
             max_obj: 232200
             timeout: 900000
             retry: 3
         - age:
-            workers: "{{ max_workers }}"
-            max_obj: "{{ workload.args.stages.fill.max_obj * 2 }}"
+            workers: 2
+            max_obj: "300000"
         - upgrade:
             workers: 0
             max_obj: 250000
@@ -57,4 +59,4 @@ spec:
               list: 10
         - empty:
             max_obj: 600000
-            workers: "{{ max_workers }}"
+            workers: 2
